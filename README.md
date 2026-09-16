@@ -112,7 +112,7 @@
 > 也可以在 Actions 页面手动点 "Run workflow" 触发。
 
 ```bash
-git clone https://github.com/<你的用户名>/PhotoPet.git
+git clone https://github.com/kk833/PhotoPet.git
 cd PhotoPet
 pip install -r requirements.txt
 python runtime/main.py          # 不带参数 = 加载 pets/ 下全部宠物
@@ -123,7 +123,7 @@ python runtime/main.py          # 不带参数 = 加载 pets/ 下全部宠物
 ### 图形向导（推荐，不用碰命令行）
 
 ```bash
-git clone https://github.com/<你的用户名>/PhotoPet.git
+git clone https://github.com/kk833/PhotoPet.git
 cd PhotoPet
 pip install -r requirements.txt
 python wizard.py          # 也可以用托盘菜单「✨ 制作新桌宠…」
@@ -143,7 +143,7 @@ python wizard.py          # 也可以用托盘菜单「✨ 制作新桌宠…」
 ### 安装依赖
 
 ```bash
-git clone https://github.com/<你的用户名>/PhotoPet.git
+git clone https://github.com/kk833/PhotoPet.git
 cd PhotoPet
 pip install -r requirements.txt
 ```
