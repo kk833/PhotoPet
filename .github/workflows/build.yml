@@ -1,0 +1,94 @@
+name: 构建 Windows 桌宠
+
+# 什么时候跑:
+#   · 手动 (Actions 页面点 "Run workflow") —— 想出一个可下载的包时
+#   · 打 v* 标签时 —— 顺便自动建 Release, 用户在 Releases 页就能直接下载
+#   · 推到 main / 提 PR 时 —— 只构建不发布, 用来随时确认"还能打包成功"
+on:
+  workflow_dispatch:
+    inputs:
+      create_release:
+        description: "同时创建 Release (只有打了 tag 才有意义)"
+        type: boolean
+        default: false
+  push:
+    tags: ["v*"]
+    branches: [main, master]
+  pull_request:
+
+permissions:
+  contents: write        # 建 Release 需要
+
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+
+      - name: 安装依赖
+        run: |
+          python -m pip install --upgrade pip
+          # 运行时只需要 PyQt6; pyinstaller 是打包工具; pillow 用来在缺图标时生成图标
+          python -m pip install "PyQt6>=6.8" "pyinstaller>=6.11" pillow
+
+      - name: 确保有图标
+        shell: bash
+        run: |
+          # 仓库里已经提交了 runtime/icon.ico/png 就直接用 (可能是作者自己的图);
+          # 没有才生成一个默认爪印, 免得打出来的 exe 用 PyInstaller 的默认图标
+          if [ -f runtime/icon.ico ]; then
+            echo "使用仓库里的图标"
+          else
+            python scripts/make_icon.py
+          fi
+
+      - name: 打包
+        run: python build.py --clean
+
+      - name: 组装分发包
+        run: python build.py --release
+
+      - name: 上传构建产物
+        uses: actions/upload-artifact@v4
+        with:
+          name: PhotoPet-windows-x64
+          path: dist/PhotoPet-windows-x64.zip
+          if-no-files-found: error
+
+      - name: 发布到 Release
+        # 打了 v* 标签, 或手动触发时勾了 create_release
+        if: startsWith(github.ref, 'refs/tags/v') || inputs.create_release
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          TAG="${GITHUB_REF_NAME}"
+          if [[ "$TAG" != v* ]]; then
+            # 手动触发时没有 tag, 用时间戳造一个
+            TAG="manual-$(date +%Y%m%d-%H%M%S)"
+          fi
+
+          # 说明写成文件再传给 gh: 多段文字直接塞进 --notes 会让 YAML 块缩进出错
+          cat > "$RUNNER_TEMP/notes.md" <<'EOF'
+          **下载下面的 PhotoPet-windows-x64.zip，解压后双击 PhotoPet.exe 即可运行，不需要安装 Python。**
+
+          首次启动会自动把自带的示例桌宠装好，你就能立刻看到它。
+
+          想换成你自己的宠物：用仓库里的生成器做一只，把资源包文件夹放进 `pets/` 再重启。
+
+          托盘图标（屏幕右下角）右键可以显示/隐藏、调大小、鼠标穿透、退出；
+          宠物身上右键可以投喂、开番茄钟、切语音、睡觉/醒来、设置开机自启。
+          EOF
+
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            gh release upload "$TAG" dist/PhotoPet-windows-x64.zip --clobber
+          else
+            gh release create "$TAG" dist/PhotoPet-windows-x64.zip \
+              --title "PhotoPet $TAG" \
+              --notes-file "$RUNNER_TEMP/notes.md"
+          fi
+

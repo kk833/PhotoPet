@@ -1,0 +1,28 @@
+# —— 运行桌宠必需 ——
+# QtMultimedia (QMediaPlayer/QAudioOutput, 播放语音包与音效) 随 PyQt6 主包分发;
+# 6.7.x 的 Windows 轮子曾有 multimedia 后端缺失问题, 故下限取 6.8。
+PyQt6>=6.8
+
+# —— 生成桌宠资源包必需 (照片 -> pets/<名字>/) ——
+pillow>=10.0        # 图像缩放/旋转/三态派生
+rembg>=2.0          # 自动抠图; 首次运行会自动下载模型 (bria-rmbg 约 1GB),
+                    # 国内建议先跑: python scripts/download_model.py --model u2net
+
+# —— 可选功能, 不装也能正常跑, 相关入口自动降级 ——
+# 需要时手动安装:  pip install openai edge-tts
+# openai>=1.0       # AI 对话 (需在 ai_config.json 填 api_key)
+# edge-tts>=7.0     # 语音: 微软神经语音, 免费无需 key, 音质远好于系统 SAPI5
+#                   #       首次说某句台词需联网, 之后走本地缓存
+# pyttsx3>=2.90     # 语音兜底: 系统 SAPI5, 完全离线 (不装 edge-tts 时用它)
+
+# —— 可选: 素材工具 (把视频/音频拖到「添加素材.bat」自动装进资源包) ——
+# 只放静态图和音频不需要; 视频转 GIF 需要下面这些 (+ 上面已列的 pillow):
+# pip install imageio imageio-ffmpeg numpy scipy
+# imageio>=2.30        # 读视频帧
+# imageio-ffmpeg>=0.4  # 自带 ffmpeg 可执行文件, 无需系统装 ffmpeg
+# numpy>=1.24          # 绿幕抠像的逐像素运算
+# scipy>=1.10          # 软边缘腐蚀, 去绿幕硬边
+
+# —— 可选: 仅在重新生成农历数据表时需要 (scripts/gen_lunar_table.py) ——
+# 日常使用、打包 exe 都**不需要**它: 数据已经内嵌在 runtime/pet_lunar.py 里
+# borax>=1.0           # MIT。别换成 lunardate —— 它实为 GPLv2 派生, 会污染本项目许可

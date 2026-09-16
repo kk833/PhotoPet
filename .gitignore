@@ -1,0 +1,57 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+env/
+
+# 生成的桌宠资源包（含用户照片，不要上传到公开仓库！）
+pets/
+*.png
+*.jpg
+*.jpeg
+!docs/images/*.png
+!runtime/icon.png
+
+# 素材库：AI 生成的原始视频/中间产物（体积大且含个人形象），
+# 处理好的成品在 pets/<名字>/animation/ 里。确实想连素材一起开源时用 git add -f
+素材库/
+
+# 含用户 API key，绝对不要入库
+ai_config.json
+
+# —— 和 ai_config.json 同级：程序写在用户数据目录里的"你自己的数据" ——
+# 这些不是代码，是隐私：日程里有你的安排和地点，weather.json 里是你在哪个城市
+# （连经纬度都有），tasks 和 MEMORY 是你交代给它的事。一律不入库。
+schedule.json
+tasks.json
+weather.json
+MEMORY.md
+
+# 系统/IDE
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+
+# 打包产物
+dist/
+build/
+*.spec
+# build.py --install 装到根目录的成品 (和源码共用 pets/ 与存档)
+/PhotoPet.exe
+/_internal/
+# 单实例锁 (运行时生成)
+/photopet.lock
+
+# 示例资源包 (随仓库发布)。放在 pets/ 之外是刻意的: pets/ 被整目录忽略,
+# 而 git 不允许重新包含"父目录已被忽略"的文件; 首次运行时程序会把它复制到 pets/ 里。
+!demo-pet/**
+# 但示例模板自己不该带上存档 (真跑起来时程序会复制到 pets/ 里, 存档落在那边)
+demo-pet/status.json
+demo-pet/work.json
+
+# 打包创作版时临时放这儿的抠图模型 (167MB, 不该进仓库)
+/models/
+dist-creator/
