@@ -109,6 +109,11 @@ def fetch_teachins(url: str = DEFAULT_URL, days_ahead: int = 14,
     认不出来的网站会返回 ([], 说明)，调用方应该改走大模型那条路
     （见 main.py 的 fetch_jobfair_async）。
     """
+    if not (url or "").strip():
+        # 默认地址是空的（见模块文档：面向全国的工具不该默认指向某一所学校）。
+        # 这里必须自己挡住 —— 交给 urllib 会抛 "unknown url type"，
+        # 调用方拿到一个莫名其妙的异常，而不是"你还没填地址"
+        return [], "还没配就业网地址（在「⚙ 秋招设置」里填）"
     today = date.today()
     horizon = (today.toordinal() + days_ahead)
     seen: dict[str, dict] = {}

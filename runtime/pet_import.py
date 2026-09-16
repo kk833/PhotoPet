@@ -56,6 +56,8 @@ def read_file(path: str) -> ReadResult:
         return _read_docx(path)
     if ext in (".doc",):
         return _read_doc_old(path)
+    if ext == ".pdf":
+        return _read_pdf(path)
     if ext in (".csv", ".txt", ".md"):
         return _read_plain(path)
     raise ValueError(f"这个格式我还不认识：{ext or '（没有扩展名）'}"
@@ -124,6 +126,39 @@ def _read_docx(path: str) -> ReadResult:
     if len(text) > MAX_TEXT_CHARS:
         text = text[:MAX_TEXT_CHARS]
         return ReadResult(text, "text", "文档太长，只读了前面一部分")
+    return ReadResult(text, "text")
+
+
+def _read_pdf(path: str) -> ReadResult:
+    """PDF（简历基本都是这个格式）。
+
+    用 pymupdf: 它对各种排版的容忍度比 PyPDF2 高，中文简历不容易读出乱码。
+    纯图片扫描件读出来是空的 —— 这种情况明确告诉用户，别假装读到了。
+    """
+    try:
+        import pymupdf
+    except ImportError:
+        try:
+            import fitz as pymupdf          # 老版本的名字
+        except ImportError as e:
+            raise ValueError("读 PDF 需要 pymupdf：pip install pymupdf") from e
+    try:
+        doc = pymupdf.open(path)
+    except Exception as e:                                    # noqa: BLE001
+        raise ValueError(f"这个 PDF 打不开（{e.__class__.__name__}: {e}）") from e
+    try:
+        parts = [page.get_text() for page in doc]
+    finally:
+        doc.close()
+    text = "\n".join(parts)
+    # 压缩空行：PDF 抽出来的文本常常一行一个字、到处是空行
+    lines = [ln.strip() for ln in text.splitlines()]
+    text = "\n".join(ln for ln in lines if ln)
+    if len(text.strip()) < 20:
+        raise ValueError("这个 PDF 里读不到文字 —— 可能是扫描件（图片），"
+                         "先做一次 OCR 或者另存成 Word 再给我")
+    if len(text) > MAX_TEXT_CHARS:
+        return ReadResult(text[:MAX_TEXT_CHARS], "text", "文档太长，只读了前面一部分")
     return ReadResult(text, "text")
 
 

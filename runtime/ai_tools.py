@@ -17,6 +17,7 @@ import sys
 
 from datetime import datetime
 
+import pet_resume
 import pet_schedule
 import pet_task
 import pet_text
@@ -35,6 +36,9 @@ def _log(msg: str):
 
 # 工具调用的最大轮数: 防止模型来回调不停 (正常一两轮就结束了)
 MAX_TOOL_ROUNDS = 4
+# 挑宣讲会时简历最多带多少字: 一页简历 + 项目经历差不多就这些,
+# 再长也不会让判断更准, 只是白烧 token
+MAX_RESUME_CHARS = 3500
 
 
 class Toolbox:
@@ -127,6 +131,24 @@ class Toolbox:
                 },
             },
         ]
+        tools.append({
+            "type": "function",
+            "function": {
+                "name": "match_events",
+                "description": "结合用户的简历，从近期宣讲会里挑出值得他去的几场。"
+                               "用户问'哪些宣讲会适合我''我该去哪个'时用它。"
+                               "只会推荐，不会删除或修改任何日程。",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "days": {"type": "integer",
+                                 "description": "看未来几天内的，默认 7"},
+                        "limit": {"type": "integer",
+                                  "description": "最多读几场的详情页，默认 8（读页面慢，别贪多）"},
+                    },
+                },
+            },
+        })
         tools.append({
             "type": "function",
             "function": {
@@ -415,6 +437,74 @@ class Toolbox:
             return f"找到「{ev.title}」的详情页了（{ev.url}），但读不出来：{err}"
         return (f"这是「{ev.title}」的详情页正文（{ev.url}）：\n---\n{text}\n---\n"
                 f"（挑重点回答用户，别逐字念）")
+
+    def _do_match_events(self, days: int = 7, limit: int = 8) -> str:
+        """挑出"值得你去"的宣讲会（v0.26）。
+
+        **为什么一次读完而不是一场一次**: 秋招一天十几场，一场一调用就是十几轮 ——
+        又慢又贵。这里一次把近期宣讲会的详情页读完、连同简历一次性交给模型，
+        它一轮就能给出推荐。每个页面只截前 600 字（看出"这家做什么、招什么方向"够了）。
+
+        **只推荐，不删任何东西**：用户明确要求宣讲会"宁可多报，不可漏报"，
+        所以这个工具不改日程，只是告诉用户哪几场值得去。
+        """
+        if self.pet is None:
+            return "现在读不了简历。"
+        resume = pet_resume.load()
+        if not resume.strip():
+            return ("用户还没给我简历 —— 让他右键「📅 日程 / 待办」→"
+                    "「📄 导入我的简历…」，把 PDF 或 Word 简历给我。"
+                    "在那之前我只能按公司名瞎猜，不如不做。")
+
+        try:
+            days = max(1, min(30, int(days)))
+            limit = max(1, min(12, int(limit)))
+        except (TypeError, ValueError):
+            days = 7
+            limit = 8
+
+        now = datetime.now()
+        upcoming = [(ev, when) for ev, when in self.sched.upcoming(limit=60)
+                    if (when - now).days <= days]
+        if not upcoming:
+            return f"接下来 {days} 天没有安排，没什么可挑的。"
+        # 只有带详情页链接的才读得到内容（手动加的日程没有链接）
+        with_url = [(ev, when) for ev, when in upcoming if ev.url][:limit]
+        if not with_url:
+            return ("接下来的安排里没有带详情页链接的 —— 只有从就业网抓来的宣讲会"
+                    "才有链接。先让用户抓一次宣讲会。")
+
+        # 并发抓页面: 串行抓 8 个页面要十几秒，并发一两秒就够
+        texts: dict[str, str] = {}
+
+        def grab(ev):
+            text, _ = pet_web.read_url(ev.url)
+            texts[ev.url] = text
+
+        import concurrent.futures
+        with concurrent.futures.ThreadPoolExecutor(max_workers=5) as pool:
+            list(pool.map(grab, [ev for ev, _ in with_url]))
+
+        blocks = []
+        for i, (ev, when) in enumerate(with_url, 1):
+            body = (texts.get(ev.url) or "").strip()
+            if len(body) > 600:
+                body = body[:600] + "…"
+            head = (f"{i}. {when:%m-%d %H:%M} {ev.title}"
+                    + (f"（{ev.note}）" if ev.note else ""))
+            blocks.append(head + ("\n   详情页：\n   " + body.replace("\n", "\n   ")
+                                  if body else "\n   （详情页没读到内容）"))
+
+        skipped = len(upcoming) - len(with_url)
+        tail = (f"\n（另外还有 {skipped} 场没有详情页链接，没读；"
+                f"它们仍然在日程里，一场都没删）" if skipped else "")
+
+        return ("【我的简历】\n" + resume.strip()[:MAX_RESUME_CHARS] + "\n\n"
+                "【近期宣讲会】（已读详情页）\n" + "\n".join(blocks) + tail + "\n\n"
+                "请挑出**值得这位用户去**的几场，每场用一句话说明理由"
+                "（比如'做服务器电源，和你电源方向的实习对得上'）。"
+                "**不要建议删掉任何一场** —— 用户宁可多跑几场，也不想因为"
+                "判断失误错过机会。说不准的就直说不准。")
 
     def _do_read_url(self, url: str = "") -> str:
         """读网页给模型看。

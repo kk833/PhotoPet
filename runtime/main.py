@@ -34,6 +34,7 @@ import pet_import
 import pet_jobfair
 import pet_weather
 import pet_memory
+import pet_resume
 from datetime import datetime
 from pet_extras import set_click_through as win32_click_through, match_action
 
@@ -1102,6 +1103,7 @@ class PetWindow(QLabel):
         talk_menu.addAction("看待办", self.open_tasks)
         talk_menu.addAction("➕ 添加日程…", self.add_event)
         talk_menu.addAction("📥 导入日程文件…", self.pick_import_file)
+        talk_menu.addAction("📄 导入我的简历…", self.pick_resume_file)
         talk_menu.addSeparator()
         talk_menu.addAction("🎓 抓宣讲会（秋招）", self.fetch_jobfair_async)
         auto_act = QAction("⏱ 宣讲会自动同步", talk_menu)
@@ -1594,6 +1596,25 @@ class PetWindow(QLabel):
             "表格/文档 (*.xlsx *.xls *.docx *.doc *.csv *.txt *.md)")
         if path:
             self.import_schedule_file(path)
+
+    def pick_resume_file(self):
+        """右键「📄 导入我的简历…」: 选 PDF/Word 简历，读成纯文本存下来。
+
+        只存文本、不存原件 —— 简历里有你的手机号、住址、投过的公司，
+        没必要在程序目录里再放一份。
+        """
+        path, _ = QFileDialog.getOpenFileName(
+            None, "选你的简历", os.path.expanduser("~"),
+            "简历 (*.pdf *.docx *.doc *.txt *.md)")
+        if not path:
+            return
+        text, err = pet_resume.save_from_file(path)
+        if err:
+            self.say(f"这份简历我读不了：{err}")
+            return
+        who = pet_resume.headline(text)
+        self.say(f"简历收好了{"，" + who if who else ""}。"
+                 f"以后问我「哪些宣讲会适合我」，我照着挑。")
 
     def open_tasks(self):
         """右键「待办」: 弹出待办卡 (和别的卡片一样, 点一下收起)。"""
