@@ -40,8 +40,8 @@ from pet_extras import set_click_through as win32_click_through, match_action
 
 from PyQt6.QtCore import QSettings
 
-from PyQt6.QtCore import (Qt, QTimer, QPoint, QPointF, QRectF, QSize, QUrl,
-                          pyqtSignal)
+from PyQt6.QtCore import (Qt, QTimer, QPoint, QPointF, QRect, QRectF, QSize,
+                          QUrl, QPropertyAnimation, QEasingCurve, pyqtSignal)
 from PyQt6.QtGui import (QPixmap, QAction, QActionGroup, QMovie, QIcon, QImageReader,
                          QDesktopServices,
                          QPainter, QColor, QBrush, QPen, QPainterPath, QImage,
@@ -1566,25 +1566,55 @@ class PetWindow(QLabel):
         self._preview_import(events, "大模型解析")
 
     def dragEnterEvent(self, e):
-        """把文件拖到宠物身上 —— 用户原话就是"直接丢给他"。"""
-        if self._dropped_docs(e.mimeData()):
+        """把文件拖到宠物身上 —— 用户原话就是"直接丢给他"。
+
+        **现在什么文件都收**（以前只收表格/文档）：拖进去就会看到它"吃掉"，
+        能被它吃出内容的（日程表）顺便处理，吃不出来的就单纯吃掉。
+        """
+        if self._dropped_files(e.mimeData()):
             e.acceptProposedAction()
 
     def dropEvent(self, e):
-        files = self._dropped_docs(e.mimeData())
-        if files:
-            e.acceptProposedAction()
-            self.import_schedule_file(files[0])
+        files = self._dropped_files(e.mimeData())
+        if not files:
+            return
+        e.acceptProposedAction()
+        path = files[0]
+        # 小纸片从"你放下的位置"飞进它嘴里
+        start = self.mapToGlobal(e.position().toPoint())
+        start = start - QPoint(FileSnack.W // 2, FileSnack.H // 2)
+        g = self.frameGeometry()
+        mouth = QPoint(g.center().x() - 4, g.top() + int(g.height() * 0.42))
+        self._snack = FileSnack(self, start, mouth, lambda: self._eat_file(path))
+
+    def _eat_file(self, path: str):
+        """吃掉一个文件（小纸片飞到嘴边之后才调这里）。
+
+        日程类文档顺便处理；其它文件就只是吃掉 —— 但**台词要区分**，
+        不然用户会以为"拖了但没反应"是个 bug。
+        """
+        name = os.path.basename(path)
+        ext = os.path.splitext(path)[1].lower()
+        self.apply_state("eat")              # 复用已有的吃东西动画 + 音效
+        QTimer.singleShot(2500, lambda: self.apply_state("idle"))
+        if ext in self._DOC_EXTS:
+            self.say(f"啊呜～吃掉一份「{name}」，我看看有没有能记下来的…")
+            QTimer.singleShot(1400, lambda: self.import_schedule_file(path))
+        else:
+            self.say(f"啊呜～「{name}」吃掉啦！（这种文件我嚼不出内容 😋）")
+
+    # 能被"吃出内容"的格式；其余文件只吃不吃内容
+    _DOC_EXTS = (".xlsx", ".xlsm", ".xls", ".docx", ".doc", ".csv",
+                 ".txt", ".md", ".pdf")
 
     @staticmethod
-    def _dropped_docs(mime) -> list[str]:
+    def _dropped_files(mime) -> list[str]:
         if not mime.hasUrls():
             return []
-        exts = (".xlsx", ".xlsm", ".xls", ".docx", ".doc", ".csv", ".txt", ".md")
         out = []
         for url in mime.urls():
             path = url.toLocalFile()
-            if path and path.lower().endswith(exts):
+            if path and os.path.isfile(path):
                 out.append(path)
         return out
 
@@ -1706,6 +1736,84 @@ class PetWindow(QLabel):
             sched.mark_fired(ev, when)
         # 等宠物把开场那几句话说完再说, 免得撞在一起
         QTimer.singleShot(6000, lambda: self.say(missed_summary_text(missed)))
+
+
+class FileSnack(QLabel):
+    """拖文件给宠物时，那张"飞进它嘴里"的小纸片 (v0.27)。
+
+    两个作用:
+    1. **即时反馈** —— 拖文件进来之后要联网、要解析，好几秒才有结果。这张纸片
+       从你放下的位置飞到它嘴边，让你立刻知道"收到了"
+    2. 好玩 —— 纸片缩小 + 淡出，接着它播"吃东西"，像真的被吃掉了
+
+    纸片是**代码画的**（不需要新素材）：一张带折角的纸 + 三条横线。
+    动画用 QPropertyAnimation 同时改 geometry(飞+缩) 和 windowOpacity(淡出)。
+    """
+
+    W, H = 46, 56
+
+    def __init__(self, pet: "PetWindow", start: QPoint, end: QPoint, on_done):
+        super().__init__(None)
+        self.setWindowFlags(
+            Qt.WindowType.FramelessWindowHint
+            | Qt.WindowType.WindowStaysOnTopHint
+            | Qt.WindowType.Tool
+            | Qt.WindowType.WindowTransparentForInput     # 别挡住鼠标
+        )
+        self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
+        self.setAttribute(Qt.WidgetAttribute.WA_ShowWithoutActivating)
+        self.setPixmap(self._draw_file())
+        self.setFixedSize(self.W, self.H)
+        self.move(start)
+        self.show()
+
+        # 飞 + 缩: 用 InCubic 让它是"被吸进去"的感觉，而不是匀速平移
+        grow = QPropertyAnimation(self, b"geometry", self)
+        grow.setDuration(520)
+        grow.setStartValue(QRect(start, QSize(self.W, self.H)))
+        grow.setEndValue(QRect(end, QSize(8, 10)))
+        grow.setEasingCurve(QEasingCurve.Type.InCubic)
+        fade = QPropertyAnimation(self, b"windowOpacity", self)
+        fade.setDuration(520)
+        fade.setStartValue(1.0)
+        fade.setEndValue(0.0)
+        fade.setEasingCurve(QEasingCurve.Type.InCubic)
+
+        def finished():
+            self.hide()
+            self.deleteLater()
+            on_done()
+
+        grow.finished.connect(finished)
+        self._anims = (grow, fade)      # 留住引用，不然会被回收、动画不动
+        grow.start()
+        fade.start()
+
+    def _draw_file(self) -> QPixmap:
+        """画一张小纸片：白纸 + 折角 + 三条横线。"""
+        pm = QPixmap(self.W, self.H)
+        pm.fill(Qt.GlobalColor.transparent)
+        p = QPainter(pm)
+        p.setRenderHint(QPainter.RenderHint.Antialiasing)
+        w, h, fold = self.W - 6, self.H - 6, 12
+        body = QPainterPath()
+        body.moveTo(3, 3)
+        body.lineTo(3 + w - fold, 3)
+        body.lineTo(3 + w, 3 + fold)          # 折角
+        body.lineTo(3 + w, 3 + h)
+        body.lineTo(3, 3 + h)
+        body.closeSubpath()
+        p.setPen(QPen(QColor("#C9BFA8"), 1.4))
+        p.setBrush(QBrush(QColor("#FFFDF7")))
+        p.drawPath(body)
+        p.drawLine(QPointF(3 + w - fold, 3), QPointF(3 + w - fold, 3 + fold))
+        p.drawLine(QPointF(3 + w - fold, 3 + fold), QPointF(3 + w, 3 + fold))
+        p.setPen(QPen(QColor("#C6BCA6"), 1.6))
+        for i in range(3):                     # 三条"文字"
+            y = 3 + fold + 12 + i * 9
+            p.drawLine(QPointF(10, y), QPointF(3 + w - 8 - (i * 6), y))
+        p.end()
+        return pm
 
 
 class Bubble(QLabel):
